@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from googleapiclient.discovery import build
+import datetime
 
 # 1. 設定網頁基本資訊
 st.set_page_config(page_title="季節性商品市場趨勢觀測站", page_icon="🎃", layout="wide")
@@ -15,6 +16,9 @@ api_key = st.sidebar.text_input("請輸入 YouTube API Key", type="password")
 search_query = st.sidebar.text_input("輸入觀測關鍵字", value="Halloween party favors trends")
 max_results = st.sidebar.slider("抓取影片數量", min_value=10, max_value=50, value=20)
 
+# 新增：時間區間選擇器
+time_range = st.sidebar.selectbox("選擇資料時間範圍", ["過去半年", "過去一年", "過去兩年"])
+
 # 3. 執行抓取與展示
 if st.sidebar.button("開始抓取最新趨勢"):
     if not api_key:
@@ -22,6 +26,18 @@ if st.sidebar.button("開始抓取最新趨勢"):
     else:
         with st.spinner('資料抓取中，請稍候...'):
             try:
+                # 根據使用者的選擇，計算出「起始日期」
+                today = datetime.datetime.now()
+                if time_range == "過去半年":
+                    start_date = today - datetime.timedelta(days=180)
+                elif time_range == "過去一年":
+                    start_date = today - datetime.timedelta(days=365)
+                elif time_range == "過去兩年":
+                    start_date = today - datetime.timedelta(days=730)
+                
+                # YouTube API 規定時間必須是特定的 RFC 3339 格式 (例如: 2024-05-01T00:00:00Z)
+                published_after = start_date.strftime('%Y-%m-%dT00:00:00Z')
+
                 # 建立 YouTube API 請求
                 youtube = build('youtube', 'v3', developerKey=api_key)
                 request = youtube.search().list(
@@ -29,7 +45,8 @@ if st.sidebar.button("開始抓取最新趨勢"):
                     part='snippet',
                     maxResults=max_results,
                     type='video',
-                    order='viewCount' # 直接依觀看次數排序，找出熱門爆款
+                    order='viewCount', # 依然依觀看次數排序，找出爆款
+                    publishedAfter=published_after # 新增時間限制：只抓取這個時間之後的影片
                 )
                 response = request.execute()
 
@@ -52,7 +69,7 @@ if st.sidebar.button("開始抓取最新趨勢"):
                 # 將資料轉為表格 (DataFrame)
                 df = pd.DataFrame(video_data)
 
-                st.success("抓取完成！以下為目前市場熱度最高的相關影片：")
+                st.success(f"抓取完成！以下為「{time_range}」內市場熱度最高的相關影片：")
 
                 # 在網頁上繪製互動式表格
                 st.dataframe(
@@ -69,11 +86,11 @@ if st.sidebar.button("開始抓取最新趨勢"):
                 st.download_button(
                     label="📥 下載資料匯入 Power Query (CSV)",
                     data=csv,
-                    file_name='halloween_trend_data.csv',
+                    file_name=f'halloween_trend_data_{time_range}.csv', # 檔名會根據選擇的時間動態改變
                     mime='text/csv',
                 )
 
             except Exception as e:
                 st.error(f"發生錯誤，請檢查 API Key 是否正確或配額已滿。錯誤訊息：{e}")
 else:
-    st.info("👈 請在左側設定區貼上你的 API Key，並點擊「開始抓取最新趨勢」")
+    st.info("👈 請在左側設定區貼上你的 API Key，設定時間與關鍵字後，點擊「開始抓取最新趨勢」")
